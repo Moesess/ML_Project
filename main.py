@@ -1,7 +1,6 @@
 import mysql.connector
 import pandas as pd
 import json
-from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
@@ -9,21 +8,39 @@ def get_csv():
     db_config = {
         'user': 'admin',              # Nazwa użytkownika
         'password': 'admin',          # Hasło
-        'host': 'localhost',          # Host (użyj nazwy usługi Docker Compose, jeśli łączysz się z innego kontenera)
+        'host': 'localhost',          # Host
         'port': 3306,                 # Port
         'database': 'MLDB'            # Nazwa bazy danych
     }
 
-    query = "SELECT shared_attrs FROM state_attributes                          \
-             WHERE JSON_EXTRACT(shared_attrs, '$.device_class') = 'temperature' \
-             AND JSON_EXTRACT(shared_attrs, '$.local_temperature') IS NOT NULL  \
-             LIMIT 1000;"
+    sql_power = "SELECT shared_attrs FROM state_attributes WHERE \
+             JSON_EXTRACT(shared_attrs, '$.device_class') = 'power' \
+             AND JSON_EXTRACT(shared_attrs, '$.friendly_name') like '%Tomek %' \
+             ;"
+    
+    sql_temperature = "SELECT shared_attrs FROM state_attributes WHERE \
+             JSON_EXTRACT(shared_attrs, '$.device_class') = 'temperature' \
+             AND JSON_EXTRACT(shared_attrs, '$.friendly_name') like '%tomek local%' \
+             ;"
+    
+    sql_other = "SELECT shared_attrs FROM state_attributes WHERE \
+            JSON_EXTRACT(shared_attrs, '$.device_class') NOT IN ('battery', 'window', 'problem', 'update', 'frequency', 'plug', 'wind_speed', 'temperature', 'power') \
+            AND JSON_EXTRACT(shared_attrs, '$.friendly_name') like '%Tomek %' \
+            ;"
 
     try:
         conn = mysql.connector.connect(**db_config)
-        df = pd.read_sql(query, conn)
+        df = pd.read_sql(sql_temperature, conn)
         normalized = pd.json_normalize(df['shared_attrs'].apply(json.loads))
-        normalized.to_csv('temperatures.csv', index=False)
+        normalized.to_csv('CSV/temperatures.csv', index=False)
+
+        df = pd.read_sql(sql_power, conn)
+        normalized = pd.json_normalize(df['shared_attrs'].apply(json.loads))
+        normalized.to_csv('CSV/power.csv', index=False)
+
+        df = pd.read_sql(sql_other, conn)
+        normalized = pd.json_normalize(df['shared_attrs'].apply(json.loads))
+        normalized.to_csv('CSV/other.csv', index=False)
     except mysql.connector.Error as e:
         print(f"Błąd połączenia: {e}")
     finally:
@@ -40,11 +57,11 @@ def learn():
 
     # Przekształcanie cech kategorycznych
     data = pd.get_dummies(data, columns=['system_mode', 'running_state'])
-    data = data[data['friendly_name'] == 'Regulator temperatury - tomek local temperature calibration']
-    data = data.drop(columns=['away_preset_days', 'comfort_temperature', 'auto_lock', 'away_mode', 'child_lock', 
-                                  'force', 'holidays', 'holidays_schedule', 'preset', 'week', 
-                                  'window_detection', 'workdays', 'workdays_schedule', 'unit_of_measurement', 
-                                  'device_class', 'icon', 'friendly_name', 'update.installed_version', 'update.state'])
+    # data = data[data['friendly_name'] == 'Regulator temperatury - tomek local temperature calibration']
+    # data = data.drop(columns=['away_preset_days', 'comfort_temperature', 'auto_lock', 'away_mode', 'child_lock', 
+    #                               'force', 'holidays', 'holidays_schedule', 'preset', 'week', 
+    #                               'window_detection', 'workdays', 'workdays_schedule', 'unit_of_measurement', 
+    #                               'device_class', 'icon', 'friendly_name', 'update.installed_version', 'update.state'])
 
     # Podział danych
     from sklearn.model_selection import train_test_split
@@ -76,5 +93,5 @@ def learn():
 
 
 if __name__ == '__main__':
-    learn()
-    # get_csv()
+    # learn()
+    get_csv()
