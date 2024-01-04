@@ -1,8 +1,10 @@
 import mysql.connector
 import pandas as pd
 import json
-from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
 
 def get_csv():
     db_config = {
@@ -47,51 +49,112 @@ def get_csv():
         if conn.is_connected():
             conn.close()    
 
-def learn():
+def avg_power_to_temp():
     # Wczytanie danych
-    data = pd.read_csv('temperatures.csv')
+    power_data = pd.read_csv('CSV/power.csv')
+    temperature_data = pd.read_csv('CSV/temperatures.csv')
 
-    # Wstępne przetwarzanie danych
-    # Czyszczenie danych
-    data.dropna(subset=['local_temperature'], inplace=True)  # Usuwanie wierszy z brakującą temperaturą
+    # Agregacja danych o zużyciu energii
+    segment_length = len(power_data) // len(temperature_data)
+    aggregated_power = []
 
-    # Przekształcanie cech kategorycznych
-    data = pd.get_dummies(data, columns=['system_mode', 'running_state'])
-    # data = data[data['friendly_name'] == 'Regulator temperatury - tomek local temperature calibration']
-    # data = data.drop(columns=['away_preset_days', 'comfort_temperature', 'auto_lock', 'away_mode', 'child_lock', 
-    #                               'force', 'holidays', 'holidays_schedule', 'preset', 'week', 
-    #                               'window_detection', 'workdays', 'workdays_schedule', 'unit_of_measurement', 
-    #                               'device_class', 'icon', 'friendly_name', 'update.installed_version', 'update.state'])
+    for i in range(len(temperature_data)):
+        segment = power_data[i*segment_length:(i+1)*segment_length]
+        avg_power = segment['power'].mean()  # Średnia dla segmentu
+        aggregated_power.append(avg_power)
 
-    # Podział danych
-    from sklearn.model_selection import train_test_split
-    train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
+    # Tworzenie DataFrame z agregowanymi danymi
+    aggregated_power_data = pd.DataFrame({
+        'average_power': aggregated_power
+    })
 
-    # Zapis przetworzonych danych
-    train_data.to_csv('train_data.csv', index=False)
-    test_data.to_csv('test_data.csv', index=False)
+    print(len(aggregated_power))
+    
+    # Dołączenie agregowanych danych o zużyciu energii do danych o temperaturze
+    merged_data = pd.concat([aggregated_power_data.reset_index(drop=True), temperature_data['local_temperature'].reset_index(drop=True)], axis=1)
 
-    features = data[['local_temperature', 'current_heating_setpoint']]
-    target = data['comfort_temperature']
+    # Obliczenie współczynnika korelacji Pearsona
+    correlation = merged_data.corr()
 
-    # Podział na zestawy treningowe i testowe
-    X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
+    print("Macierz korelacji:")
+    print(correlation)
 
+    plt.scatter(merged_data['average_power'], merged_data['local_temperature'])
+    plt.title('Zależność między zużyciem energii a temperaturą')
+    plt.xlabel('Średnie zużycie energii (W)')
+    plt.ylabel('Lokalna temperatura (°C)')
+    plt.show()
 
-    # Budowa modelu regresji
-    model = LinearRegression()
-    model.fit(X_train, y_train)
+def predict_power_consumption():
+    print("Predict power consumption")
+    # Przygotowanie danych
+    power_data = pd.read_csv('CSV/power.csv')
+    temperature_data = pd.read_csv('CSV/temperatures.csv')
 
-    # Ocena modelu
-    predictions = model.predict(X_test)
-    mse = mean_squared_error(y_test, predictions)
-    print(f'Błąd średniokwadratowy (MSE): {mse}')
+    min_length = min(len(power_data), len(temperature_data))
+    power_data = power_data.head(min_length)
+    temperature_data = temperature_data.head(min_length)
 
-    # Przewidywanie temperatury komfortu
-    comfort_prediction = model.predict(X_test)
-    print(comfort_prediction)
+    # Usuwanie wierszy z NaN
+    power_features = power_data[['current', 'energy', 'power']].dropna().reset_index(drop=True)
+    temperature_features = temperature_data[['local_temperature']].dropna().reset_index(drop=True)
+
+    # Synchronizacja indeksów
+    common_indices = power_features.index.intersection(temperature_features.index)
+    power_features = power_features.loc[common_indices]
+    temperature_features = temperature_features.loc[common_indices]
+
+    if not power_features.index.equals(temperature_features.index):
+        print("Indeksy nie są zsynchronizowane!")
+    else:
+        # Połączenie cech z obu zestawów danych
+        features = pd.concat([power_features.reset_index(drop=True), temperature_features.reset_index(drop=True)], axis=1)
+        target = power_data['power'].reset_index(drop=True)
+
+        # Wspólny indeks
+        common_index = features.index.intersection(target.index)
+
+        # Użycie wspólnego indeksu do synchronizacji
+        features = features.loc[common_index]
+        target = target.loc[common_index]
+
+        if len(features) == len(target):
+            X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2)
+            
+            # Usunięcie rekordów z NaN w target (y)
+            non_nan_indices = ~y_train.isna()
+            X_train = X_train[non_nan_indices]
+            y_train = y_train[non_nan_indices]
+
+            # Podobnie dla zestawu testowego
+            non_nan_indices_test = ~y_test.isna()
+            X_test = X_test[non_nan_indices_test]
+            y_test = y_test[non_nan_indices_test]
+
+            if len(X_train) != len(y_train):
+                raise ValueError("Liczba wierszy w X_train i y_train nie jest równa. Upewnij się, że dane są poprawnie przetworzone.")
+
+            # Trenowanie modelu
+            model = RandomForestRegressor()
+            model.fit(X_train, y_train)
+
+            # Predykcja i ocena
+            predictions = model.predict(X_test)
+            mse = mean_squared_error(y_test, predictions)
+            print(f'MSE: {mse}')
+
+            # Analiza ważności cech
+            feature_importances = pd.Series(model.feature_importances_, index=features.columns)
+            feature_importances.plot(kind='barh')
+            plt.title('Ważność cech')
+            plt.show()
+        else:
+            print("Błąd: liczba wierszy w features i target nie jest taka sama.")
+            print("Liczba wierszy w features:", len(features))
+            print("Liczba wierszy w target:", len(target))
 
 
 if __name__ == '__main__':
-    # learn()
-    get_csv()
+    avg_power_to_temp()
+    predict_power_consumption()
+    # get_csv()
