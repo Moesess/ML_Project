@@ -3,7 +3,11 @@ import numpy as np
 import pandas as pd
 import json
 
-from LogisticReggression import LogisticRegression
+from sklearn.model_selection import train_test_split
+
+from LogisticReggression import LogisticRegression, accuracy
+from LinearReggresion import LinearRegression, mean_squared_error
+from PMV import calculate_pmv
 
 DB_CONFIG = {
     'user': 'admin',              # Nazwa użytkownika
@@ -15,6 +19,8 @@ DB_CONFIG = {
 MIN_TS = '2023-01-01 00:00:00'
 MAX_TS = '2023-11-30 23:59:59'
 ALL_TIMESTAMPS = pd.date_range(start=MIN_TS, end=MAX_TS, freq='min')
+
+linearModel = LinearRegression(learning_rate=0.0001)
 
 def get_temperatures():
     sql_temp = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \
@@ -71,9 +77,9 @@ def get_temperatures_local():
         result.set_index('date', inplace=True)
 
         # Uzupełnij resztę wierszy jako spekulację
+        result["humidity"] = np.round(np.random.uniform(45, 55, size=len(result)), 0)
         result = result.reindex(ALL_TIMESTAMPS, method='ffill').reset_index()
         result.rename(columns={'index': 'date'}, inplace=True)
-        result["humidity"] = np.round(np.random.uniform(45, 55, size=len(result)), 0)
         result.to_csv('CSV/temperatures_local.csv', index=False)
 
     except mysql.connector.Error as e:
@@ -82,12 +88,67 @@ def get_temperatures_local():
         if conn.is_connected():
             conn.close()    
 
-def create_temperatures_data_set():
+def optimize_temperature(model, initial_temp, other_conditions, target_pmv=0, tolerance=0.1, max_iterations=100):
+    current_temp = initial_temp
+    for _ in range(max_iterations):
+        current_conditions = [current_temp] + other_conditions
+        predicted_pmv = model.predict([current_conditions])[0]
+        if abs(predicted_pmv - target_pmv) < tolerance:
+            return current_temp
+
+        if predicted_pmv > target_pmv:
+            current_temp -= 0.1
+        else:
+            current_temp += 0.1
+
+    return current_temp
+
+
+def create_training_data_sets():
     out = pd.read_csv("CSV/temperatures_out.csv")
     local = pd.read_csv("CSV/temperatures_local.csv")
+    presence = pd.read_csv("CSV/power_predict.csv")
 
     temperatures = pd.concat([local[['date', 'local_temperature', 'humidity']], out[['temperature', 'pressure']]], axis=1)
     temperatures.to_csv("CSV/temperatures.csv", index=False)
+    
+    # stworzenie danych testowych
+    temperatures["date"] = pd.to_datetime(temperatures['date'])
+    temperatures_train = temperatures
+    temperatures_train["hour"] = temperatures_train['date'].dt.hour
+    temperatures_train["month"] = temperatures_train['date'].dt.month
+    
+    # dołącz obecność
+    temperatures_train = pd.concat([temperatures_train, presence["presence"]], axis=1)
+    temperatures_train["PMV"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
+    
+    X = temperatures_train[['local_temperature', 'humidity']]  # cechy
+    y = temperatures_train['PMV']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1234)
+    linearModel.fit(X_train, y_train)
+
+    # Predykcja na danych testowych
+    predictions = linearModel.predict(X_test)
+
+    mse = mean_squared_error(y_test, predictions)
+    print("Błąd średniokwadratowy:", mse)
+    
+    temperatures_train.sort_values(by="date", inplace=True)
+    temperatures_train.to_csv("CSV/temperatures_train.csv", index=False)
+
+
+    optimal_temperatures = []
+    for index, row in temperatures_train.iterrows():
+        print(index)
+        other_conditions = [row['humidity']]
+        optimal_temp = optimize_temperature(linearModel, row['local_temperature'], other_conditions)
+        optimal_temperatures.append(optimal_temp)
+
+    # Dodanie obliczonych temperatur do DataFrame
+    temperatures_train['optimal_temperature'] = optimal_temperatures
+
+    # Zapis do CSV
+    temperatures_train.to_csv('optimal_temperatures.csv', index=False)
 
 def get_powers():
     sql_power = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \
@@ -136,7 +197,7 @@ def create_presence_data_set():
     df['presence'] = ((df['power'] > 60) | ((df['date'].dt.hour >= 0) & (df['date'].dt.hour <= 8))).astype(int)
     df.to_csv('CSV/power_train.csv', index=False)
 
-def prediciton():
+def presence_prediction():
     # Pobierz dane treningowe i dostosuj do nauki
     dane_wejsciowe = pd.read_csv("CSV/power_train.csv")
     dane_wejsciowe_X = dane_wejsciowe[['power', 'weekday']]
@@ -165,8 +226,8 @@ if __name__ == '__main__':
     # Wymagane połączenie do bazy sql
     # get_powers()
     # create_presence_data_set()
-    # prediciton()
+    # presence_prediction()
 
-    get_temperatures_local()
-    get_temperatures()
-    create_temperatures_data_set()
+    # get_temperatures_local()
+    # get_temperatures()
+    create_training_data_sets()
