@@ -1,4 +1,5 @@
 import mysql.connector
+import numpy as np
 import pandas as pd
 import json
 
@@ -11,11 +12,43 @@ DB_CONFIG = {
     'port': 3306,                 # Port
     'database': 'MLDB'            # Nazwa bazy danych
 }
-min_ts = '2023-01-01 00:00:00'
-max_ts = '2023-11-30 23:59:59'
-ALL_TIMESTAMPS = pd.date_range(start=min_ts, end=max_ts, freq='min')
+MIN_TS = '2023-01-01 00:00:00'
+MAX_TS = '2023-11-30 23:59:59'
+ALL_TIMESTAMPS = pd.date_range(start=MIN_TS, end=MAX_TS, freq='min')
 
 def get_temperatures():
+    sql_temp = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \
+        INNER JOIN state_attributes as t2 on t1.attributes_id=t2.attributes_id \
+        WHERE JSON_EXTRACT(shared_attrs, '$.friendly_name') = 'Dom' AND \
+        JSON_EXTRACT(shared_attrs, '$.pressure') IS NOT NULL \
+        ORDER BY last_updated_ts;"
+    
+    try:       
+        # Połączenie z bazą i pobranie danych
+        conn = mysql.connector.connect(**DB_CONFIG)
+        df = pd.read_sql(sql_temp, conn)
+
+        # Znormalizowanie danych do postaci dataframe
+        normalized = pd.json_normalize(df['shared_attrs'].apply(json.loads))
+        df['date'] = pd.to_datetime(df['last_updated_ts'], unit='s').dt.floor('min')
+        result = pd.concat([df['date'], normalized[["temperature", "pressure"]]], axis=1)
+
+        # Pogrupuj po datach i usuń powtórki
+        result = result.groupby('date').first().reset_index()
+        result.set_index('date', inplace=True)
+
+        # Uzupełnij resztę wierszy jako spekulację
+        result = result.reindex(ALL_TIMESTAMPS, method='ffill').reset_index()
+        result.rename(columns={'index': 'date'}, inplace=True)
+        result.to_csv('CSV/temperatures_out.csv', index=False)
+
+    except mysql.connector.Error as e:
+        print(f"Błąd połączenia: {e}")
+    finally:
+        if conn.is_connected():
+            conn.close()    
+
+def get_temperatures_local():
     sql_temp = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \
             INNER JOIN state_attributes as t2 on t1.attributes_id=t2.attributes_id \
             WHERE JSON_EXTRACT(shared_attrs, '$.device_class') = 'temperature' AND \
@@ -40,13 +73,21 @@ def get_temperatures():
         # Uzupełnij resztę wierszy jako spekulację
         result = result.reindex(ALL_TIMESTAMPS, method='ffill').reset_index()
         result.rename(columns={'index': 'date'}, inplace=True)
-        result.to_csv('CSV/temperatures.csv', index=False)
+        result["humidity"] = np.round(np.random.uniform(45, 55, size=len(result)), 0)
+        result.to_csv('CSV/temperatures_local.csv', index=False)
 
     except mysql.connector.Error as e:
         print(f"Błąd połączenia: {e}")
     finally:
         if conn.is_connected():
             conn.close()    
+
+def create_temperatures_data_set():
+    out = pd.read_csv("CSV/temperatures_out.csv")
+    local = pd.read_csv("CSV/temperatures_local.csv")
+
+    temperatures = pd.concat([local[['date', 'local_temperature', 'humidity']], out[['temperature', 'pressure']]], axis=1)
+    temperatures.to_csv("CSV/temperatures.csv", index=False)
 
 def get_powers():
     sql_power = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \
@@ -104,7 +145,7 @@ def prediciton():
 
     X, y = dane_wejsciowe_X, dane_wejsciowe_Y
 
-    classifier = LogisticRegression(learning_rate=0.001) # Chyba najlepsze ratio
+    classifier = LogisticRegression(learning_rate=0.01) # Chyba najlepsze ratio
     y = y.squeeze().values
     classifier.fit(X, y)
 
@@ -123,6 +164,9 @@ def prediciton():
 if __name__ == '__main__':
     # Wymagane połączenie do bazy sql
     # get_powers()
-    # get_temperatures()
     # create_presence_data_set()
-    prediciton()
+    # prediciton()
+
+    get_temperatures_local()
+    get_temperatures()
+    create_temperatures_data_set()
