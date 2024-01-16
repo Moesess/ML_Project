@@ -15,14 +15,14 @@ def get_csv():
         'database': 'MLDB'            # Nazwa bazy danych
     }
 
-    sql_power = "SELECT shared_attrs, last_updated_ts FROM states as t1 \
+    sql_power = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \
                 INNER JOIN state_attributes as t2 on t1.attributes_id=t2.attributes_id \
                 WHERE JSON_EXTRACT(shared_attrs, '$.device_class') = 'power' AND \
                 JSON_EXTRACT(shared_attrs, '$.friendly_name') like '%Tomek %' AND \
                 JSON_EXTRACT(shared_attrs, '$.power') is not null \
                 ORDER BY last_updated_ts;"
     
-    sql_temp = "SELECT shared_attrs, last_updated_ts FROM states as t1 \
+    sql_temp = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \
                 INNER JOIN state_attributes as t2 on t1.attributes_id=t2.attributes_id \
                 WHERE JSON_EXTRACT(shared_attrs, '$.device_class') = 'temperature' AND \
                 JSON_EXTRACT(shared_attrs, '$.friendly_name') like '%tomek local%' AND \
@@ -41,9 +41,14 @@ def get_csv():
 
     try:
         conn = mysql.connector.connect(**db_config)
+
+        min_ts = '2023-04-01 00:00:00'
+        max_ts = '2023-04-30 23:59:59'
+        all_timestamps = pd.date_range(start=min_ts, end=max_ts, freq='S')
+
         df = pd.read_sql(sql_temp, conn)
         normalized = pd.json_normalize(df['shared_attrs'].apply(json.loads))
-        df['last_updated_ts'] = pd.to_datetime(df['last_updated_ts'], unit='s')
+        df['last_updated_ts'] = pd.to_datetime(df['last_updated_ts'], unit='s').dt.floor('S')
         result = pd.concat([df['last_updated_ts'], normalized], axis=1)
         result.drop(['auto_lock', 'away_mode', 'away_preset_days', 'away_preset_temperature',
                      'battery_low', 'boost_time', 'child_lock', 'eco_temperature','force',
@@ -55,24 +60,37 @@ def get_csv():
                      'window_detection_params.minutes','window_detection_params.temperature',
                      'update.latest_version','programming_mode', 'comfort_temperature','current_heating_setpoint'
                      ], axis='columns', inplace=True)
-        result.to_csv('CSV/temperatures.csv', index=False)
+        
+        result = result.groupby('last_updated_ts').first().reset_index()
+        result.set_index('last_updated_ts', inplace=True)
+        result = result.reindex(all_timestamps, method='ffill').reset_index()
+        result.rename(columns={'index': 'last_updated_ts'}, inplace=True)
+        result.to_csv('CSV/t4.csv', index=False)
 
         df = pd.read_sql(sql_power, conn)
         normalized = pd.json_normalize(df['shared_attrs'].apply(json.loads))
-        df['last_updated_ts'] = pd.to_datetime(df['last_updated_ts'], unit='s')
+        df['last_updated_ts'] = pd.to_datetime(df['last_updated_ts'], unit='s').dt.floor('S')
         result = pd.concat([df['last_updated_ts'], normalized], axis=1)
         result.drop(['state_class', 'indicator_mode', 'linkquality', 'power_outage_memory', 'energy', 'unit_of_measurement',
                      'device_class', 'friendly_name'], axis='columns', inplace=True)
-        result.to_csv('CSV/power.csv', index=False)
+        
+        result = result.groupby('last_updated_ts').first().reset_index()
+        result.set_index('last_updated_ts', inplace=True)
+        result = result.reindex(all_timestamps, method='ffill').reset_index()
+        result.rename(columns={'index': 'last_updated_ts'}, inplace=True)
+        result.to_csv('CSV/p4.csv', index=False)
 
-        # df = pd.read_sql(sql_other, conn)
-        # normalized = pd.json_normalize(df['shared_attrs'].apply(json.loads))
-        # normalized.to_csv('CSV/other.csv', index=False)
     except mysql.connector.Error as e:
         print(f"Błąd połączenia: {e}")
     finally:
         if conn.is_connected():
             conn.close()    
+
+def create_presence_data_set():
+    df = pd.read_csv("CSV/p1.csv")
+    df['last_updated_ts'] = pd.to_datetime(df['last_updated_ts'])
+    df['presence'] = ((df['power'] > 60) | ((df['last_updated_ts'].dt.hour >= 0) & (df['last_updated_ts'].dt.hour <= 8))).astype(int)
+    df.to_csv('CSV/p1_presence.csv', index=False)
 
 def avg_power_to_temp():
     # Wczytanie danych
@@ -182,4 +200,5 @@ def predict_power_consumption():
 if __name__ == '__main__':
     # avg_power_to_temp()
     # predict_power_consumption()
-    get_csv()
+    # get_csv()
+    create_presence_data_set()
