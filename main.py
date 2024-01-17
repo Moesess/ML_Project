@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 
 from LogisticReggression import LogisticRegression, accuracy
 from LinearReggresion import LinearRegression, mean_squared_error
-from PMV import calculate_pmv
+from PMV import calculate_pmv, find_optimal_temperature
 
 DB_CONFIG = {
     'user': 'admin',              # Nazwa użytkownika
@@ -88,21 +88,6 @@ def get_temperatures_local():
         if conn.is_connected():
             conn.close()    
 
-def optimize_temperature(model, initial_temp, other_conditions, target_pmv=0, tolerance=0.1, max_iterations=100):
-    current_temp = initial_temp
-    for _ in range(max_iterations):
-        current_conditions = [current_temp] + other_conditions
-        predicted_pmv = model.predict([current_conditions])[0]
-        if abs(predicted_pmv - target_pmv) < tolerance:
-            return current_temp
-
-        if predicted_pmv > target_pmv:
-            current_temp -= 0.1
-        else:
-            current_temp += 0.1
-
-    return current_temp
-
 
 def create_training_data_sets():
     out = pd.read_csv("CSV/temperatures_out.csv")
@@ -119,12 +104,16 @@ def create_training_data_sets():
     temperatures_train["month"] = temperatures_train['date'].dt.month
     
     # dołącz obecność
-    temperatures_train = pd.concat([temperatures_train, presence["presence"]], axis=1)
-    temperatures_train["PMV"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
-    
-    X = temperatures_train[['local_temperature', 'humidity']]  # cechy
-    y = temperatures_train['PMV']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1234)
+    if False:
+        # Przeliczanie PMV i optymalnych danych do treningu długo trwa więc pobieram z pliku
+        temperatures_train["PMV"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
+        temperatures_train["optimal_temperature"] = temperatures_train.apply(lambda row: np.round(find_optimal_temperature(row["local_temperature"]), 2), axis=1)
+    else:
+        temperatures_train = pd.read_csv("CSV/temperatures_train.csv")
+
+    X = temperatures_train[['PMV', 'humidity', 'local_temperature']]
+    y = temperatures_train['optimal_temperature']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=1234)
     linearModel.fit(X_train, y_train)
 
     # Predykcja na danych testowych
@@ -136,19 +125,13 @@ def create_training_data_sets():
     temperatures_train.sort_values(by="date", inplace=True)
     temperatures_train.to_csv("CSV/temperatures_train.csv", index=False)
 
-
-    optimal_temperatures = []
-    for index, row in temperatures_train.iterrows():
-        print(index)
-        other_conditions = [row['humidity']]
-        optimal_temp = optimize_temperature(linearModel, row['local_temperature'], other_conditions)
-        optimal_temperatures.append(optimal_temp)
-
     # Dodanie obliczonych temperatur do DataFrame
-    temperatures_train['optimal_temperature'] = optimal_temperatures
+    temperatures_train['optimal_temperature'] = linearModel.predict(temperatures_train[['PMV', 'humidity', 'local_temperature']])
+    temperatures_train = pd.concat([temperatures_train, presence["presence"]], axis=1)
+    temperatures_train["PMV_after"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["optimal_temperature"], row["humidity"]), 2), axis=1)
 
     # Zapis do CSV
-    temperatures_train.to_csv('optimal_temperatures.csv', index=False)
+    temperatures_train.to_csv('CSV/optimal_temperatures.csv', index=False)
 
 def get_powers():
     sql_power = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \

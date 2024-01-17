@@ -54,3 +54,17 @@ def calculate_pmv(ta, rh, tr=22, vel=0.1, met=1.2, clo=0.5, wme=0):
     pmv = ts * (mw - hl1 - hl2 - hl3 - hl4 - hl5 - hl6)
 
     return pmv
+
+def find_optimal_temperature(humidity, target_pmv=0, step=0.1, max_iterations=100):
+    optimal = 20
+    for _ in range(max_iterations):
+        new_pmv = calculate_pmv(optimal, humidity)
+        if abs(new_pmv - target_pmv) < 0.5:  # Tolerancja dla PMV
+            return optimal
+
+        if new_pmv > target_pmv:
+            optimal -= step
+        else:
+            optimal += step
+
+    return optimal
