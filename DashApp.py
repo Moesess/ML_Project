@@ -115,7 +115,7 @@ def update_graph_power(start_date, end_date):
             y=obecnosc_y,
             mode='lines',
             name='Obecność',
-            line=dict(color='pink', width=2),
+            line=dict(color='lime', width=2),
             opacity=0.3
         ),
         go.Scatter(
@@ -168,7 +168,7 @@ def update_graph_temp(start_date, end_date):
             y=filtered_data['local_temperature'],
             mode='lines', 
             line=dict(color='red', width=2),
-            name='OT',
+            name='LT',
             opacity=0.3
         ),
         go.Scatter(
@@ -184,7 +184,7 @@ def update_graph_temp(start_date, end_date):
             y=filtered_data['optimal_temperature'],
             mode='lines', 
             line=dict(color='yellow', width=2),
-            name='LT',
+            name='OT',
             opacity=0.3
         ),
         go.Scatter(
