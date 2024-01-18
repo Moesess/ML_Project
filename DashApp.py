@@ -115,7 +115,7 @@ def update_graph_power(start_date, end_date):
             y=obecnosc_y,
             mode='lines',
             name='Obecność',
-            line=dict(color='pink', width=2),
+            line=dict(color='lime', width=2),
             opacity=0.3
         ),
         go.Scatter(
