@@ -168,7 +168,7 @@ def update_graph_temp(start_date, end_date):
             y=filtered_data['local_temperature'],
             mode='lines', 
             line=dict(color='red', width=2),
-            name='OT',
+            name='LT',
             opacity=0.3
         ),
         go.Scatter(
@@ -184,7 +184,7 @@ def update_graph_temp(start_date, end_date):
             y=filtered_data['optimal_temperature'],
             mode='lines', 
             line=dict(color='yellow', width=2),
-            name='LT',
+            name='OT',
             opacity=0.3
         ),
         go.Scatter(
