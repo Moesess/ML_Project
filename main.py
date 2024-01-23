@@ -90,33 +90,40 @@ def get_temperatures_local():
 
 
 def create_training_data_sets():
-    out = pd.read_csv("CSV/temperatures_out.csv")
-    local = pd.read_csv("CSV/temperatures_local.csv")
+    # out = pd.read_csv("CSV/temperatures_out.csv")
+    # local = pd.read_csv("CSV/temperatures_local.csv")
     presence = pd.read_csv("CSV/power_predict.csv")
 
-    temperatures = pd.concat([local[['date', 'local_temperature', 'humidity']], out[['temperature', 'pressure']]], axis=1)
-    temperatures.to_csv("CSV/temperatures.csv", index=False)
+    # temperatures = pd.concat([local[['date', 'local_temperature', 'humidity']], out[['temperature', 'pressure']]], axis=1)
+    # temperatures["PMV"] = temperatures.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
+    # temperatures = pd.concat([temperatures, presence["presence"]], axis=1)
+    # temperatures.to_csv("CSV/temperatures.csv", index=False)
+    temperatures = pd.read_csv("CSV/temperatures.csv")
     
-    # stworzenie danych testowych
+    # Stworzenie danych testowych
     temperatures["date"] = pd.to_datetime(temperatures['date'])
-    temperatures_train = temperatures
+    temperatures_train = temperatures.sample(frac=0.1, random_state=1)
     temperatures_train["hour"] = temperatures_train['date'].dt.hour
     temperatures_train["month"] = temperatures_train['date'].dt.month
-    
-    # dołącz obecność
-    if False:
+    temperatures_train.sort_values(by="date", inplace=True)
+    print("licz temp")
+    # Dołącz obecność
+    if True:
         # Przeliczanie PMV i optymalnych danych do treningu długo trwa więc pobieram z pliku
-        temperatures_train["PMV"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
-        temperatures_train["optimal_temperature"] = temperatures_train.apply(lambda row: np.round(find_optimal_temperature(row["local_temperature"]), 2), axis=1)
+        # temperatures_train["PMV"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
+        temperatures_train["optimal_temperature"] = temperatures_train.apply(lambda row: np.round(find_optimal_temperature(row["humidity"]), 2), axis=1)
     else:
         temperatures_train = pd.read_csv("CSV/temperatures_train.csv")
-
-    X = temperatures_train[['PMV', 'humidity', 'local_temperature']]
+    print(temperatures_train)
+    print("dane test")
+    X = temperatures_train[['local_temperature', 'PMV', 'humidity']]
     y = temperatures_train['optimal_temperature']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=1234)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=1)
+    
     linearModel.fit(X_train, y_train)
 
     # Predykcja na danych testowych
+    print("predict")
     predictions = linearModel.predict(X_test)
 
     mse = mean_squared_error(y_test, predictions)
@@ -126,12 +133,11 @@ def create_training_data_sets():
     temperatures_train.to_csv("CSV/temperatures_train.csv", index=False)
 
     # Dodanie obliczonych temperatur do DataFrame
-    temperatures_train['optimal_temperature'] = linearModel.predict(temperatures_train[['PMV', 'humidity', 'local_temperature']])
-    temperatures_train = pd.concat([temperatures_train, presence["presence"]], axis=1)
-    temperatures_train["PMV_after"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["optimal_temperature"], row["humidity"]), 2), axis=1)
+    temperatures['optimal_temperature'] = np.round(linearModel.predict(temperatures[['local_temperature', 'PMV', 'humidity']]))
+    temperatures["PMV_after"] = temperatures.apply(lambda row: np.round(calculate_pmv(row["optimal_temperature"], row["humidity"]), 2), axis=1)
 
     # Zapis do CSV
-    temperatures_train.to_csv('CSV/optimal_temperatures.csv', index=False)
+    temperatures.to_csv('CSV/optimal_temperatures.csv', index=False)
 
 def get_powers():
     sql_power = "SELECT DISTINCT shared_attrs, last_updated_ts FROM states as t1 \

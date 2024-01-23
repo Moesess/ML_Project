@@ -13,7 +13,6 @@ def calculate_pmv(ta, rh, tr=22, vel=0.1, met=1.2, clo=0.5, wme=0):
     :param wme: Praca mechaniczna w metach (domyślnie 0)
     :return: Wartość PMV
     """
-
     pa = rh * 10 * math.exp(16.6536 - 4030.183 / (ta + 235))
     icl = 0.155 * clo
     m = met * 58.2
@@ -56,10 +55,10 @@ def calculate_pmv(ta, rh, tr=22, vel=0.1, met=1.2, clo=0.5, wme=0):
     return pmv
 
 def find_optimal_temperature(humidity, target_pmv=0, step=0.1, max_iterations=100):
-    optimal = 20
+    optimal = 24
     for _ in range(max_iterations):
         new_pmv = calculate_pmv(optimal, humidity)
-        if abs(new_pmv - target_pmv) < 0.5:  # Tolerancja dla PMV
+        if abs(new_pmv - target_pmv) < 0.3:  # Tolerancja dla PMV
             return optimal
 
         if new_pmv > target_pmv:

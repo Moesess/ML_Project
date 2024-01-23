@@ -2,7 +2,7 @@ import numpy as np
 
 class LinearRegression():
 
-    def __init__(self, learning_rate=0.001, number_of_iterations=1000):
+    def __init__(self, learning_rate=0.0001, number_of_iterations=1000):
         self.learning_rate = learning_rate
         self.number_of_iterations = number_of_iterations
         self.weights = None
@@ -11,11 +11,11 @@ class LinearRegression():
     def fit(self, X, y):
         number_of_samples, number_of_features = X.shape
         self.weights = np.zeros(number_of_features)
-        self.bias = 0
+        self.bias = 15
 
         for _ in range(self.number_of_iterations):
             model_predictions = np.dot(X, self.weights) + self.bias
-            dw = (1/number_of_samples) * np.dot(X.T, (model_predictions - y))
+            dw = (1/number_of_samples) * np.dot(X.transpose(), (model_predictions - y))
             db = (1/number_of_samples) * np.sum(model_predictions - y)
             
             self.weights = self.weights - self.learning_rate * dw
