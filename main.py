@@ -104,16 +104,16 @@ def create_training_data_sets():
     temperatures_train["month"] = temperatures_train['date'].dt.month
     
     # dołącz obecność
-    if False:
+    if True:
         # Przeliczanie PMV i optymalnych danych do treningu długo trwa więc pobieram z pliku
         temperatures_train["PMV"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
-        temperatures_train["optimal_temperature"] = temperatures_train.apply(lambda row: np.round(find_optimal_temperature(row["local_temperature"]), 2), axis=1)
+        temperatures_train["optimal_temperature"] = temperatures_train.apply(lambda row: np.round(find_optimal_temperature(row["humidity"]), 2), axis=1)
     else:
         temperatures_train = pd.read_csv("CSV/temperatures_train.csv")
 
     X = temperatures_train[['PMV', 'humidity', 'local_temperature']]
     y = temperatures_train['optimal_temperature']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=1234)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=1234)
     linearModel.fit(X_train, y_train)
 
     # Predykcja na danych testowych
@@ -126,7 +126,7 @@ def create_training_data_sets():
     temperatures_train.to_csv("CSV/temperatures_train.csv", index=False)
 
     # Dodanie obliczonych temperatur do DataFrame
-    temperatures_train['optimal_temperature'] = linearModel.predict(temperatures_train[['PMV', 'humidity', 'local_temperature']])
+    temperatures_train['optimal_temperature'] =(linearModel.predict(temperatures_train[['PMV', 'humidity', 'local_temperature']]))
     temperatures_train = pd.concat([temperatures_train, presence["presence"]], axis=1)
     temperatures_train["PMV_after"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["optimal_temperature"], row["humidity"]), 2), axis=1)
 
