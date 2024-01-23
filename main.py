@@ -90,14 +90,6 @@ def get_temperatures_local():
 
 
 def create_training_data_sets():
-    # out = pd.read_csv("CSV/temperatures_out.csv")
-    # local = pd.read_csv("CSV/temperatures_local.csv")
-    presence = pd.read_csv("CSV/power_predict.csv")
-
-    # temperatures = pd.concat([local[['date', 'local_temperature', 'humidity']], out[['temperature', 'pressure']]], axis=1)
-    # temperatures["PMV"] = temperatures.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
-    # temperatures = pd.concat([temperatures, presence["presence"]], axis=1)
-    # temperatures.to_csv("CSV/temperatures.csv", index=False)
     temperatures = pd.read_csv("CSV/temperatures.csv")
     
     # Stworzenie danych testowych
@@ -106,16 +98,13 @@ def create_training_data_sets():
     temperatures_train["hour"] = temperatures_train['date'].dt.hour
     temperatures_train["month"] = temperatures_train['date'].dt.month
     temperatures_train.sort_values(by="date", inplace=True)
-    print("licz temp")
-    # Dołącz obecność
+
     if True:
         # Przeliczanie PMV i optymalnych danych do treningu długo trwa więc pobieram z pliku
-        # temperatures_train["PMV"] = temperatures_train.apply(lambda row: np.round(calculate_pmv(row["local_temperature"], row["humidity"]), 2), axis=1)
         temperatures_train["optimal_temperature"] = temperatures_train.apply(lambda row: np.round(find_optimal_temperature(row["humidity"]), 2), axis=1)
     else:
         temperatures_train = pd.read_csv("CSV/temperatures_train.csv")
-    print(temperatures_train)
-    print("dane test")
+
     X = temperatures_train[['local_temperature', 'PMV', 'humidity']]
     y = temperatures_train['optimal_temperature']
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=1)
@@ -123,7 +112,6 @@ def create_training_data_sets():
     linearModel.fit(X_train, y_train)
 
     # Predykcja na danych testowych
-    print("predict")
     predictions = linearModel.predict(X_test)
 
     mse = mean_squared_error(y_test, predictions)
